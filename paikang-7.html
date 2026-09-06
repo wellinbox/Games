@@ -1,0 +1,975 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>ไพ่แคง · โต๊ะวงไพ่</title>
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <meta name="theme-color" content="#0b5a32" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { theme: { extend: {
+      colors: { felt:"#0b5a32", feltDark:"#06351d", gold:"#e8c36a" },
+      fontFamily: { thai: ["Sarabun","Noto Sans Thai","sans-serif"] }
+    }}}
+  </script>
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+  <style>
+    :root { --card-w: clamp(2.5rem, 7.2vw, 4.2rem); --card-h: clamp(3.5rem, 10vw, 5.9rem); --mini-w: clamp(.72rem, 2.2vw, 1.15rem); --mini-h: clamp(1.05rem, 3.1vw, 1.65rem); }
+    body { font-family: Sarabun, "Noto Sans Thai", sans-serif; }
+    .wood-ring { background: linear-gradient(135deg,#8b5a2b,#5a3210 42%,#3d2108); box-shadow: 0 16px 40px rgba(0,0,0,.5); }
+    .card-face {
+      width: var(--card-w); height: var(--card-h); border-radius: .5rem; background: #fff;
+      box-shadow: 0 6px 14px rgba(0,0,0,.35); transition: transform .18s cubic-bezier(.2,.8,.2,1);
+    }
+    .card-face.sm { width: var(--mini-w); height: var(--mini-h); }
+    .card-face.selected { transform: translateY(-12px) scale(1.05); outline: 3px solid #e8c36a; }
+    .card-back { background: repeating-linear-gradient(45deg,#1d3a72,#1d3a72 5px,#122654 5px,#122654 10px); }
+    .fly-card {
+      position: absolute; width: 40px; height: 56px; border-radius: 7px; pointer-events: none; z-index: 40;
+      background: repeating-linear-gradient(45deg,#1d3a72,#1d3a72 5px,#122654 5px,#122654 10px);
+      box-shadow: 0 10px 18px rgba(0,0,0,.45); border: 1px solid rgba(255,255,255,.25);
+      left: 50%; top: 46%; will-change: transform, opacity;
+    }
+    @keyframes deal-fly {
+      0% { transform: translate(-50%,-50%) scale(.45) rotate(-8deg); opacity: 0; }
+      18% { opacity: 1; }
+      100% { transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(.9) rotate(var(--rot)); opacity: .95; }
+    }
+    @keyframes flip-in {
+      0% { transform: rotateY(88deg) translateY(16px) scale(.9); opacity: 0; }
+      100% { transform: rotateY(0) translateY(0) scale(1); opacity: 1; }
+    }
+    .hand-deal .card-face { animation: flip-in .45s cubic-bezier(.2,.75,.2,1) backwards; }
+    #fxCanvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; border-radius: 40%; pointer-events: none; }
+    .seat-box { min-width: 0; }
+    .seat-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 9.5rem; }
+    .win-burst { position: absolute; inset: -20%; background: radial-gradient(circle at 50% 45%, rgba(232,195,106,.35), transparent 55%); animation: pulse-gold 1.6s ease-in-out infinite; }
+    @keyframes pulse-gold { 0%,100%{opacity:.55;transform:scale(1)} 50%{opacity:1;transform:scale(1.08)} }
+    @keyframes pop-in { 0%{transform:scale(.6) translateY(24px);opacity:0;filter:blur(8px)} 100%{transform:scale(1);opacity:1;filter:blur(0)} }
+    .pop-in { animation: pop-in .55s cubic-bezier(.16,1,.3,1) both; }
+    .spark { position: absolute; width: 8px; height: 8px; border-radius: 99px; background: #f3d78a; animation: spark 1.1s ease-out forwards; }
+    @keyframes spark { to { transform: translate(var(--sx), var(--sy)) scale(0); opacity: 0; } }
+    @keyframes wait-bounce { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-7px)} }
+    @keyframes wait-pulse { 0%,100%{box-shadow:0 0 0 0 rgba(232,195,106,.45)} 70%{box-shadow:0 0 0 10px rgba(232,195,106,0)} }
+    .seat-wait { animation: wait-pulse 1.4s ease-out infinite; }
+    .wait-card { animation: wait-bounce 1s ease-in-out infinite; }
+    @keyframes draw-in {
+      0% { transform: translateY(-80px) scale(.6) rotate(-12deg); opacity: 0; }
+      100% { transform: none; opacity: 1; }
+    }
+    @keyframes toss-out {
+      0% { transform: translateY(0) scale(1); opacity: 1; }
+      100% { transform: translateY(-90px) scale(.7) rotate(18deg); opacity: 0; }
+    }
+    .card-draw { animation: draw-in .45s cubic-bezier(.16,.84,.22,1) both; }
+    .card-toss { animation: toss-out .4s ease-in forwards; }
+    .notice-banner {
+      animation: pop-in .35s cubic-bezier(.16,1,.3,1);
+    }
+    .toast-stack { position: fixed; top: .75rem; left: 50%; transform: translateX(-50%); z-index: 80; display: flex; flex-direction: column; gap: .4rem; }
+    .toast { background: #04180e; border: 1px solid #e8c36a66; color: #f4ead4; padding: .45rem .8rem; border-radius: 999px; font-size: .8rem; white-space: nowrap; }
+    #tableBox { min-height: min(62vh, 560px); }
+    @media (max-width: 640px) {
+      #tableBox { min-height: 52vh; }
+      .seat-box { font-size: 11px; }
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-feltDark text-amber-50">
+<div id="toasts" class="toast-stack"></div>
+
+<section id="menu" class="min-h-screen flex items-center justify-center p-4">
+  <div class="w-full max-w-lg wood-ring rounded-3xl p-1">
+    <div class="bg-[#072315] rounded-[1.35rem] p-6 sm:p-8">
+      <div class="text-center mb-5">
+        <div class="inline-flex h-14 w-14 items-center justify-center rounded-full bg-gold/20 text-gold text-2xl mb-3"><i class="fa-solid fa-layer-group"></i></div>
+        <h1 class="text-3xl font-extrabold text-gold tracking-wider">ไพ่แคง</h1>
+        <p class="text-sm text-amber-100/70 mt-1">โต๊ะวงไพ่ · กระเป๋าชิป · ออนไลน์กับเพื่อน</p>
+      </div>
+      <div class="flex items-center justify-between bg-black/30 rounded-xl px-3 py-2 mb-4">
+        <span class="text-sm"><i class="fa-solid fa-wallet text-gold mr-2"></i>กระเป๋า</span>
+        <span id="walletHud" class="font-extrabold text-gold">1,000</span>
+      </div>
+      <label class="text-sm">ชื่อของคุณ</label>
+      <input id="myName" maxlength="20" class="mt-1 w-full rounded-xl bg-emerald-950/80 border border-amber-200/20 px-4 py-3 outline-none focus:border-gold" />
+      <label class="text-sm mt-3 block">ค่าลงมือต่อรอบ (ชิป)</label>
+      <select id="anteSel" class="mt-1 w-full rounded-xl bg-emerald-950/80 border border-amber-200/20 px-4 py-3">
+        <option value="20">20</option>
+        <option value="50" selected>50</option>
+        <option value="100">100</option>
+        <option value="200">200</option>
+      </select>
+      <p class="text-[11px] text-amber-100/50 mt-1">เจ้าห้องตั้งค่านี้ · เพื่อนจะใช้ค่าเดียวกัน</p>
+      <div class="grid grid-cols-2 gap-3 mt-5">
+        <button id="hostBtn" class="rounded-xl bg-gradient-to-b from-amber-200 to-yellow-600 text-stone-900 font-bold py-3"><i class="fa-solid fa-plus mr-1"></i>สร้างห้อง</button>
+        <button id="showJoinBtn" class="rounded-xl border border-amber-200/30 bg-white/5 font-bold py-3"><i class="fa-solid fa-right-to-bracket mr-1"></i>เข้าห้อง</button>
+      </div>
+      <div id="joinBox" class="hidden mt-4">
+        <label class="text-sm">รหัสห้อง</label>
+        <input id="joinCode" class="mt-1 w-full rounded-xl bg-emerald-950/80 border border-amber-200/20 px-4 py-3 uppercase tracking-widest outline-none" placeholder="A7K2M" />
+        <button id="joinBtn" class="mt-3 w-full rounded-xl bg-emerald-700 font-bold py-3">เข้าโต๊ะ</button>
+      </div>
+      <p id="menuErr" class="text-rose-300 text-sm mt-3 min-h-[1.2rem]"></p>
+      <div class="flex justify-between items-center mt-2">
+        <div class="flex justify-between items-center mt-2 gap-2">
+        <button id="rulesOpen1" class="text-sm text-gold/90 hover:underline"><i class="fa-regular fa-circle-question mr-1"></i>กติกา</button>
+        <button id="installBtn" class="text-xs px-3 py-1 rounded-full bg-gold/20 text-gold"><i class="fa-solid fa-download mr-1"></i>ติดตั้งบนหน้าจอ</button>
+      </div>
+      <button id="resetWallet" class="text-xs text-amber-100/50 mt-2">รีเซ็ตชิปเป็น 1,000</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="lobby" class="hidden min-h-screen flex items-center justify-center p-4">
+  <div class="w-full max-w-lg wood-ring rounded-3xl p-1">
+    <div class="bg-[#072315] rounded-[1.35rem] p-6">
+      <p class="text-center text-amber-100/70 text-sm">รหัสห้อง</p>
+      <div id="roomCode" class="text-center text-4xl font-extrabold tracking-[0.25em] text-gold my-2">-----</div>
+      <div class="flex justify-center gap-2">
+        <button id="copyBtn" class="px-4 py-2 rounded-lg bg-white/10 text-sm"><i class="fa-regular fa-copy mr-1"></i>คัดลอก</button>
+        <button id="rulesOpen2" class="px-4 py-2 rounded-lg bg-white/10 text-sm"><i class="fa-regular fa-circle-question mr-1"></i>กติกา</button>
+      </div>
+      <p id="netStatus" class="text-center text-xs text-amber-100/60 mt-3">กำลังเชื่อมต่อ...</p>
+      <p class="text-center text-sm mt-2">ค่าลงมือ <span id="lobbyAnte" class="text-gold font-bold">50</span> ชิป / รอบ</p>
+      <h3 class="mt-5 mb-2 font-bold"><i class="fa-solid fa-users mr-2 text-gold"></i>ผู้เล่นในโต๊ะ</h3>
+      <ul id="lobbyList" class="space-y-2 text-sm"></ul>
+      <p id="lobbyHint" class="text-xs text-amber-100/60 mt-3">รอเพื่อนเข้าโต๊ะ 2–4 คน</p>
+      <div class="grid grid-cols-2 gap-3 mt-5">
+        <button id="beginBtn" class="hidden rounded-xl bg-gradient-to-b from-amber-200 to-yellow-600 text-stone-900 font-bold py-3">เริ่มเล่น</button>
+        <button id="leaveBtn" class="rounded-xl border border-amber-200/20 py-3">ออกจากห้อง</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="game" class="hidden relative min-h-screen overflow-hidden">
+  <div class="absolute inset-0 bg-[#03150c]"></div>
+  <header class="relative z-20 flex items-center justify-between px-3 sm:px-5 py-2 gap-2">
+    <div class="flex items-center gap-2 min-w-0">
+      <span class="text-gold font-extrabold tracking-wider shrink-0"><i class="fa-solid fa-layer-group mr-1"></i>ไพ่แคง</span>
+      <span id="hudRoom" class="text-xs bg-black/30 px-2 py-1 rounded-full tracking-widest"></span>
+    </div>
+    <div class="flex items-center gap-2 shrink-0">
+      <span class="text-xs sm:text-sm bg-black/35 rounded-full px-2 py-1"><i class="fa-solid fa-coins text-gold mr-1"></i><b id="hudChips">0</b></span>
+      <span class="text-xs sm:text-sm bg-black/35 rounded-full px-2 py-1">กองกลาง <b id="hudPot" class="text-gold">0</b></span>
+      <button id="installBtn2" class="h-9 w-9 rounded-full bg-black/30 text-gold" title="ติดตั้ง"><i class="fa-solid fa-download"></i></button>
+      <button id="muteBtn" class="h-9 w-9 rounded-full bg-black/30 text-gold"><i class="fa-solid fa-volume-high"></i></button>
+      <button id="rulesOpen3" class="h-9 w-9 rounded-full bg-black/30 text-gold"><i class="fa-regular fa-circle-question"></i></button>
+      <button id="leaveGameBtn" class="h-9 w-9 rounded-full bg-black/30 text-rose-200"><i class="fa-solid fa-right-from-bracket"></i></button>
+    </div>
+  </header>
+
+  <div class="relative z-10 mx-auto w-full max-w-6xl px-1 sm:px-4 pb-40">
+    <div class="relative rounded-[28px] sm:rounded-[40%] mt-1 shadow-2xl">
+      <div id="tableBox" class="relative overflow-visible">
+        <canvas id="fxCanvas"></canvas>
+        <div id="seat-tl" class="absolute top-3 left-3 sm:top-6 sm:left-8 w-[min(52%,240px)] z-20"></div>
+        <div id="seat-tr" class="absolute top-3 right-3 sm:top-6 sm:right-8 w-[min(52%,240px)] z-20"></div>
+        <div id="seat-bl" class="absolute bottom-[5rem] sm:bottom-28 left-3 sm:left-8 w-[min(52%,240px)] z-20"></div>
+        <div id="seat-br" class="absolute bottom-[5rem] sm:bottom-28 right-3 sm:right-8 w-[min(52%,240px)] z-20"></div>
+        <div id="tableNotice" class="hidden absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-[70%] z-40 pointer-events-none notice-banner bg-black/70 border border-gold/40 text-gold text-xs sm:text-sm px-4 py-2 rounded-full"></div>
+        <div id="dealLayer" class="absolute inset-0 z-30 pointer-events-none"></div>
+        <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-20 px-2">
+          <div id="waitFx" class="hidden mb-2 flex flex-col items-center">
+            <div class="card-face sm card-back wait-card border border-white/30"></div>
+            <p id="waitText" class="mt-1 text-xs sm:text-sm text-gold font-bold drop-shadow"></p>
+          </div>
+          <div class="flex items-end gap-2 sm:gap-3">
+            <div class="text-center">
+              <div class="card-face card-back mx-auto border border-white/20"></div>
+              <div class="text-[10px] sm:text-[11px] mt-1 text-amber-100/80">จั่ว <span id="deckCount">0</span></div>
+            </div>
+            <div class="text-center">
+              <div id="discardPile" class="flex justify-center min-h-[var(--card-h)]"></div>
+              <div class="text-[10px] sm:text-[11px] mt-1 text-amber-100/80">ทิ้ง</div>
+            </div>
+          </div>
+          <p id="status" class="mt-2 text-gold font-bold text-xs sm:text-base text-center drop-shadow-lg"></p>
+          <p id="turnTimer" class="text-[11px] text-amber-100/70"></p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="fixed bottom-0 inset-x-0 z-30 bg-gradient-to-t from-black/90 via-black/60 to-transparent pt-3 pb-3">
+    <p id="hint" class="text-center text-xs text-amber-100/70 mb-2"></p>
+    <div id="myHand" class="flex justify-center flex-wrap gap-1 sm:gap-2 px-2 min-h-[var(--card-h)]"></div>
+    <div class="flex justify-center flex-wrap gap-2 mt-3 px-3">
+      <button id="drawBtn" class="px-4 py-2 rounded-xl bg-emerald-700 font-bold text-sm disabled:opacity-40"><i class="fa-solid fa-plus mr-1"></i>จั่ว</button>
+      <button id="discardBtn" class="px-4 py-2 rounded-xl bg-gradient-to-b from-amber-200 to-yellow-600 text-stone-900 font-bold text-sm disabled:opacity-40"><i class="fa-solid fa-hand mr-1"></i>ทิ้ง</button>
+      <button id="laiBtn" class="px-4 py-2 rounded-xl bg-white/10 font-bold text-sm disabled:opacity-40"><i class="fa-solid fa-forward mr-1"></i>ไหล</button>
+      <button id="kangBtn" class="px-4 py-2 rounded-xl bg-rose-700 font-bold text-sm disabled:opacity-40"><i class="fa-solid fa-bullhorn mr-1"></i>แคง</button>
+    </div>
+  </div>
+</section>
+
+<section id="result" class="hidden"></section>
+
+<div id="winOverlay" class="hidden fixed inset-0 z-50 flex items-center justify-center">
+  <div class="absolute inset-0 bg-black/65"></div>
+  <div class="win-burst"></div>
+  <div id="winSparks" class="absolute inset-0 overflow-hidden pointer-events-none"></div>
+  <div class="relative z-10 text-center px-6 pop-in max-w-md w-full">
+    <div class="text-gold text-sm tracking-[0.35em] mb-2">ROUND WINNER</div>
+    <div id="winName" class="text-4xl sm:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-b from-amber-100 to-yellow-500">—</div>
+    <div id="winSub" class="mt-3 text-amber-100/90"></div>
+    <ul id="scoreList" class="mt-6 text-left text-sm space-y-2"></ul>
+    <div class="grid grid-cols-2 gap-3 mt-7">
+      <button id="againBtn" class="hidden rounded-xl bg-gradient-to-b from-amber-200 to-yellow-600 text-stone-900 font-bold py-3">เล่นอีกรอบ</button>
+      <button id="backMenuBtn" class="rounded-xl border border-amber-200/30 py-3 bg-black/30">กลับเมนู</button>
+    </div>
+  </div>
+</div>
+
+<div id="uiModal" class="hidden fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4">
+  <div id="uiBackdrop" class="absolute inset-0 bg-black/70"></div>
+  <div class="relative z-10 w-full max-w-md rounded-t-3xl sm:rounded-3xl bg-[#0b2418] border border-gold/30 p-5">
+    <h3 id="uiTitle" class="text-lg font-extrabold text-gold mb-2"></h3>
+    <p id="uiBody" class="text-sm text-amber-50/90 whitespace-pre-line"></p>
+    <div id="uiActions" class="flex gap-2 mt-5"></div>
+  </div>
+</div>
+
+<div id="rulesModal" class="hidden fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+  <div id="rulesBackdrop" class="absolute inset-0 bg-black/70"></div>
+  <div class="relative z-10 w-full max-w-lg max-h-[88vh] overflow-y-auto m-0 sm:m-4 rounded-t-3xl sm:rounded-3xl bg-[#0b2418] border border-gold/30 p-5">
+    <div class="flex items-center justify-between mb-3">
+      <h3 class="text-lg font-extrabold text-gold"><i class="fa-solid fa-book-open mr-2"></i>กติกาไพ่แคง</h3>
+      <button id="rulesClose" class="h-9 w-9 rounded-full bg-white/10"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <ol class="space-y-2 text-sm text-amber-50/90 list-decimal pl-5">
+      <li>เริ่มต้นมีชิปในกระเป๋า 1,000 · แต่ละรอบเก็บค่าลงมือเข้ากองกลาง</li>
+      <li>แจกคนละ 5 ใบ · A=1, 2–9 ตามเลข, 10/J/Q/K=10</li>
+      <li>แต้มในมือน้อยที่สุดชนะ กองกลาง</li>
+      <li>ตาคุณ: จั่ว 1 แล้วทิ้งอย่างน้อย 1 · เลขเดียวกันทิ้งพร้อมกันได้</li>
+      <li>ไหลได้ถ้ามีเลขเดียวกับที่คนก่อนทิ้ง</li>
+      <li>แคงสำเร็จกินกองกลาง · แคงพลาดเสียค่าลงมือเพิ่มเข้ากอง แล้วคนแต้มน้อยสุดได้กอง</li>
+      <li>ทิ้งหมดมือชนะทันที</li>
+      <li>คนหลุดจากห้องจะถูกข้ามตา · ชิปลงมือไม่คืน</li>
+      <li>ถ้าเจ้าห้องหลุด ห้องจะปิด</li>
+      <li>ถ้าไม่จั่วภายใน 20 วินาที ระบบจั่วและทิ้งใบแพงสุดให้อัตโนมัติ</li>
+    </ol>
+  </div>
+</div>
+
+<script>
+const SUITS=[{s:"♠",red:false},{s:"♥",red:true},{s:"♦",red:true},{s:"♣",red:false}];
+const RANKS=["A","2","3","4","5","6","7","8","9","10","J","Q","K"];
+const valueOf=r=>r==="A"?1:(["10","J","Q","K"].includes(r)?10:Number(r));
+const cardId=c=>c.rank+c.suit;
+const handSum=h=>h.reduce((a,c)=>a+valueOf(c.rank),0);
+const CODE_CHARS="ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const makeCode=()=>Array.from({length:5},()=>CODE_CHARS[Math.floor(Math.random()*CODE_CHARS.length)]).join("");
+const peerIdFromCode=c=>"kaeng-"+c.toUpperCase();
+const fmt=n=>Number(n||0).toLocaleString("th-TH");
+function makeDeck(){
+  const d=[]; for(const su of SUITS) for(const r of RANKS) d.push({rank:r,suit:su.s,red:su.red});
+  for(let i=d.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1)); [d[i],d[j]]=[d[j],d[i]];} return d;
+}
+function toast(msg){
+  const el=document.createElement("div"); el.className="toast"; el.textContent=msg;
+  document.getElementById("toasts").appendChild(el);
+  setTimeout(()=>el.remove(), 3200);
+}
+function tableNotice(msg){
+  const el=document.getElementById("tableNotice");
+  if(!el) return;
+  el.textContent=msg; el.classList.remove("hidden");
+  clearTimeout(tableNotice._t);
+  tableNotice._t=setTimeout(()=>el.classList.add("hidden"), 2600);
+}
+function uiModal({title, body, actions}){
+  return new Promise(resolve=>{
+    const box=document.getElementById("uiModal");
+    document.getElementById("uiTitle").textContent=title||"";
+    document.getElementById("uiBody").textContent=body||"";
+    const act=document.getElementById("uiActions"); act.innerHTML="";
+    const close=(val)=>{ box.classList.add("hidden"); resolve(val); };
+    (actions||[{label:"ตกลง", primary:true, value:true}]).forEach(a=>{
+      const b=document.createElement("button");
+      b.className=a.primary
+        ? "flex-1 rounded-xl bg-gradient-to-b from-amber-200 to-yellow-600 text-stone-900 font-bold py-3"
+        : "flex-1 rounded-xl border border-amber-200/30 py-3";
+      b.textContent=a.label;
+      b.onclick=()=>close(a.value);
+      act.appendChild(b);
+    });
+    document.getElementById("uiBackdrop").onclick=()=>close(false);
+    box.classList.remove("hidden");
+  });
+}
+
+let deferredPrompt=null;
+window.addEventListener("beforeinstallprompt", e=>{
+  e.preventDefault(); deferredPrompt=e;
+  ["installBtn","installBtn2"].forEach(id=>{ const n=document.getElementById(id); if(n) n.classList.remove("hidden"); });
+});
+async function installApp(){
+  if(deferredPrompt){
+    deferredPrompt.prompt();
+    await deferredPrompt.userChoice;
+    deferredPrompt=null;
+    toast("พร้อมใช้งานจากหน้าจอแล้ว");
+    return;
+  }
+  const ios=/iphone|ipad|ipod/i.test(navigator.userAgent);
+  await uiModal({
+    title:"ติดตั้งไพ่แคงบนหน้าจอ",
+    body: ios
+      ? "บน iPhone/iPad:\n1. เปิดไฟล์นี้ผ่าน Safari (หรือลิงก์เว็บ)\n2. กดปุ่มแชร์\n3. เลือก เพิ่มไปยังหน้าจอโฮม"
+      : "บน Android/Chrome:\n1. เปิดเกมผ่าน https (เช่น GitHub Pages)\n2. เมนูเบราว์เซอร์ → ติดตั้งแอป / Add to Home screen\n\nหมายเหตุ: เปิดจากไฟล์ในเครื่องอย่างเดียว บางเบราว์เซอร์จะยังไม่ขึ้นปุ่มติดตั้ง",
+    actions:[{label:"เข้าใจแล้ว", primary:true, value:true}]
+  });
+}
+
+const WALLET_KEY="kaeng_wallet_v1";
+function loadWallet(){ const n=Number(localStorage.getItem(WALLET_KEY)); return Number.isFinite(n)&&n>=0?n:1000; }
+function saveWallet(n){ localStorage.setItem(WALLET_KEY, String(Math.max(0,Math.floor(n)))); refreshWalletHud(); }
+function refreshWalletHud(){
+  const w=loadWallet();
+  const a=document.getElementById("walletHud"); if(a) a.textContent=fmt(w);
+  const b=document.getElementById("hudChips"); if(b) b.textContent=fmt(w);
+}
+const SESSION_KEY="kaeng_session_v1";
+const pendingDrop={};
+function saveSession(extra){
+  const cur=JSON.parse(sessionStorage.getItem(SESSION_KEY)||"{}");
+  sessionStorage.setItem(SESSION_KEY, JSON.stringify({...cur, ...extra, ts:Date.now()}));
+}
+function readSession(){ try{return JSON.parse(sessionStorage.getItem(SESSION_KEY)||"null");}catch(e){return null;} }
+function clearSession(){ sessionStorage.removeItem(SESSION_KEY); }
+function clientPeerId(code, uid){ return "kaengc-"+code+"-"+uid; }
+function newUid(){ return Math.random().toString(36).slice(2,8); }
+
+const SFX={
+  ctx:null, muted:false,
+  ensure(){ if(!this.ctx) this.ctx=new (window.AudioContext||window.webkitAudioContext)(); if(this.ctx.state==="suspended") this.ctx.resume(); },
+  noise(dur,freq,gain){
+    if(this.muted) return; this.ensure();
+    const ctx=this.ctx, n=ctx.createBuffer(1,ctx.sampleRate*dur,ctx.sampleRate);
+    const d=n.getChannelData(0); for(let i=0;i<d.length;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/d.length,2);
+    const src=ctx.createBufferSource(); src.buffer=n;
+    const bp=ctx.createBiquadFilter(); bp.type="bandpass"; bp.frequency.value=freq; bp.Q.value=1.2;
+    const g=ctx.createGain(); g.gain.setValueAtTime(gain,ctx.currentTime); g.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+dur);
+    src.connect(bp); bp.connect(g); g.connect(ctx.destination); src.start();
+  },
+  deal(){ this.noise(.09,1800+Math.random()*900,.16); },
+  win(){
+    if(this.muted) return; this.ensure();
+    const ctx=this.ctx, now=ctx.currentTime;
+    [523,659,784,1046].forEach((f,i)=>{ const o=ctx.createOscillator(), g=ctx.createGain(); o.type="triangle"; o.frequency.value=f;
+      g.gain.setValueAtTime(0,now+i*.09); g.gain.linearRampToValueAtTime(.12,now+i*.09+.04); g.gain.exponentialRampToValueAtTime(.001,now+i*.09+.5);
+      o.connect(g); g.connect(ctx.destination); o.start(now+i*.09); o.stop(now+i*.09+.55); });
+  }
+};
+
+const FX={renderer:null,scene:null,camera:null,ready:false};
+function initTable3D(){
+  const canvas=document.getElementById("fxCanvas"), box=document.getElementById("tableBox");
+  const w=box.clientWidth||800, h=box.clientHeight||520;
+  const renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:true});
+  renderer.setPixelRatio(Math.min(devicePixelRatio,2)); renderer.setSize(w,h,false);
+  renderer.toneMapping=THREE.ACESFilmicToneMapping;
+  const scene=new THREE.Scene();
+  const camera=new THREE.PerspectiveCamera(32,w/h,.1,50);
+  camera.position.set(0,7.2,.15); camera.lookAt(0,0,0);
+  scene.add(new THREE.AmbientLight(0x6aa87a,.55));
+  const key=new THREE.SpotLight(0xfff2cc,2.1,30,Math.PI/3,.55); key.position.set(3,10,2); scene.add(key);
+  const fill=new THREE.PointLight(0x88ffaa,.55); fill.position.set(-4,4,-2); scene.add(fill);
+  scene.add(new THREE.Mesh(new THREE.CylinderGeometry(3.6,3.6,.12,80), new THREE.MeshStandardMaterial({color:0x0d6a38,roughness:.82})));
+  scene.add(Object.assign(new THREE.Mesh(new THREE.CylinderGeometry(2.3,2.3,.13,64), new THREE.MeshStandardMaterial({color:0x0a4c28,roughness:.9})),{position:new THREE.Vector3(0,.01,0)}));
+  const wood=new THREE.Mesh(new THREE.TorusGeometry(3.62,.22,16,80), new THREE.MeshStandardMaterial({color:0x6b3a14,roughness:.45,metalness:.15}));
+  wood.rotation.x=Math.PI/2; wood.position.y=.08; scene.add(wood);
+  const gold=new THREE.Mesh(new THREE.TorusGeometry(3.4,.03,8,80), new THREE.MeshStandardMaterial({color:0xd4b45a,roughness:.3,metalness:.7}));
+  gold.rotation.x=Math.PI/2; gold.position.y=.16; scene.add(gold);
+  FX.renderer=renderer; FX.scene=scene; FX.camera=camera; FX.ready=true;
+  const loop=()=>{ if(!FX.ready) return; const t=performance.now()*0.00025; camera.position.x=Math.sin(t)*.15; camera.position.z=.15+Math.cos(t*.8)*.08; camera.lookAt(0,0,0); renderer.render(scene,camera); requestAnimationFrame(loop); };
+  loop();
+}
+function resizeTable(){
+  if(!FX.ready) return;
+  const box=document.getElementById("tableBox"); const w=box.clientWidth,h=box.clientHeight;
+  FX.camera.aspect=w/h; FX.camera.updateProjectionMatrix(); FX.renderer.setSize(w,h,false);
+}
+window.addEventListener("resize", ()=>{ if(!document.getElementById("game").classList.contains("hidden")) resizeTable(); });
+
+const net={peer:null,isHost:false,code:"",myId:"",myName:"",conns:{},hostConn:null,ante:50};
+let lobbyPlayers=[], game=null, view=null, selected=new Set();
+let lastDealId=null, lastFxSeq=null, dealing=false, turnClock=null, turnLeft=0;
+
+function show(id){ ["menu","lobby","game","result"].forEach(s=>document.getElementById(s).classList.toggle("hidden", s!==id)); }
+const setNet=m=>document.getElementById("netStatus").textContent=m;
+const menuErr=m=>document.getElementById("menuErr").textContent=m||"";
+function openRules(){ document.getElementById("rulesModal").classList.remove("hidden"); }
+function closeRules(){ document.getElementById("rulesModal").classList.add("hidden"); }
+["rulesOpen1","rulesOpen2","rulesOpen3"].forEach(id=>document.getElementById(id).onclick=openRules);
+document.getElementById("rulesClose").onclick=closeRules;
+document.getElementById("rulesBackdrop").onclick=closeRules;
+document.getElementById("muteBtn").onclick=()=>{ SFX.muted=!SFX.muted; document.getElementById("muteBtn").innerHTML=`<i class="fa-solid ${SFX.muted?"fa-volume-xmark":"fa-volume-high"}"></i>`; };
+/* reset handled at bottom with modal */
+
+function renderLobby(){
+  const ul=document.getElementById("lobbyList"); ul.innerHTML="";
+  lobbyPlayers.forEach(p=>{
+    const li=document.createElement("li");
+    li.className="flex items-center justify-between bg-white/5 rounded-xl px-3 py-2";
+    li.innerHTML=`<span><i class="fa-solid fa-user text-gold mr-2"></i>${p.name}${p.id===net.myId?" (คุณ)":""}${p.left?" — หลุด":""}</span>
+      <span class="text-xs text-amber-100/70">${fmt(p.chips)} ชิป</span>`;
+    ul.appendChild(li);
+  });
+  document.getElementById("roomCode").textContent=net.code;
+  document.getElementById("lobbyAnte").textContent=net.ante;
+  const alive=lobbyPlayers.filter(p=>!p.left);
+  const begin=document.getElementById("beginBtn");
+  begin.classList.toggle("hidden",!net.isHost);
+  begin.disabled=alive.length<2||alive.length>4||alive.some(p=>p.chips<net.ante);
+  document.getElementById("lobbyHint").textContent=net.isHost
+    ?(alive.length<2?"รอเพื่อนเข้าอย่างน้อย 1 คน":alive.some(p=>p.chips<net.ante)?"มีคนชิปไม่พอค่าลงมือ":"พร้อมเริ่ม ("+alive.length+" คน)")
+    :"รอเจ้าห้องเริ่มเกม";
+}
+function destroyNet(reason){
+  clearTurnClock();
+  clearSession();
+  if(net.isHost) hostBroadcast({type:"room-closed", text:reason||"เจ้าห้องปิดห้อง"});
+  Object.values(net.conns).forEach(c=>{try{c.close()}catch(e){}});
+  if(net.hostConn) try{net.hostConn.close()}catch(e){}
+  if(net.peer) try{net.peer.destroy()}catch(e){}
+  net.peer=null; net.conns={}; net.hostConn=null; lobbyPlayers=[]; game=null; view=null; lastDealId=null;
+  document.getElementById("winOverlay").classList.add("hidden");
+  if(reason) toast(reason);
+  show("menu"); refreshWalletHud();
+}
+function hostBroadcast(msg){ const raw=JSON.stringify(msg); Object.values(net.conns).forEach(c=>{ if(c.open) c.send(raw); }); }
+function sendHost(msg){ if(net.isHost) return handleHostMessage(net.myId,msg); if(net.hostConn&&net.hostConn.open) net.hostConn.send(JSON.stringify(msg)); }
+function alivePlayers(list){ return list.filter(p=>!p.left && !p.out); }
+function publicPlayers(full){
+  return full.players.map((p,i)=>({
+    id:p.id, name:p.name, count:p.hand.length, turn:i===full.turn && !full.over,
+    chips:p.chips, left:!!p.left, waiting: i===full.turn && full.phase==="draw" && !full.over
+  }));
+}
+function snapshotFor(playerId){
+  const pidx=game.players.findIndex(p=>p.id===playerId);
+  return {
+    type:"state", over:game.over, resultTitle:game.resultTitle||"", scores:game.scores||null,
+    turn:game.turn, phase:game.phase, lastDiscardRank:game.lastDiscardRank,
+    discard:game.discard.slice(-3), deckCount:game.deck.length, pot:game.pot, ante:game.ante,
+    players:publicPlayers(game), myIndex:pidx, myHand:pidx>=0?game.players[pidx].hand:[],
+    dealId:game.dealId, turnEndsAt:game.turnEndsAt||0, fx:game.fx||null,
+    myChips: pidx>=0 ? game.players[pidx].chips : null,
+    lastPayout: game.lastPayout||null
+  };
+}
+function pushState(){
+  if(!game) return;
+  view=snapshotFor(net.myId);
+  applyView(view);
+  Object.keys(net.conns).forEach(pid=>{ const c=net.conns[pid]; if(c.open) c.send(JSON.stringify(snapshotFor(pid))); });
+}
+function applyView(v){
+  view=v;
+  if(typeof v.myChips==="number") saveWallet(v.myChips);
+  const me=v.players.find(p=>p.id===net.myId || p.name===net.myName);
+  if(me && typeof me.chips==="number") saveWallet(me.chips);
+  if(v.over){ renderResult(v); return; }
+  document.getElementById("winOverlay").classList.add("hidden");
+  show("game");
+  requestAnimationFrame(()=>{ if(!FX.ready) initTable3D(); else resizeTable(); });
+  if(v.dealId && v.dealId!==lastDealId){ lastDealId=v.dealId; playDealAnimation(v).then(()=>renderGame(true)); }
+  else renderGame(false);
+  playActionFx(v);
+  syncTurnClock(v);
+}
+function hostStartRound(){
+  const seated=lobbyPlayers.filter(p=>!p.left);
+  if(seated.length<2){ toast("ผู้เล่นไม่พอ"); return; }
+  if(seated.some(p=>p.chips<net.ante)){ toast("มีคนชิปไม่พอ"); return; }
+  seated.forEach(p=>p.chips-=net.ante);
+  const mine=seated.find(p=>p.id===net.myId); if(mine) saveWallet(mine.chips);
+  const deck=makeDeck();
+  const players=seated.slice(0,4).map(p=>({id:p.id,name:p.name,uid:p.uid||"",hand:deck.splice(0,5),chips:p.chips,left:false,out:false}));
+  game={ players, deck, discard:[], turn:0, phase:"draw", lastDiscardRank:null, over:false, resultTitle:"", scores:null,
+    dealId:Date.now(), pot:net.ante*players.length, ante:net.ante, turnEndsAt:Date.now()+20000, fx:{kind:"deal", seq:Date.now()} };
+  show("game"); pushState();
+}
+function nextAlive(from){
+  const n=game.players.length;
+  for(let k=1;k<=n;k++){ const i=(from+k)%n; if(!game.players[i].left && !game.players[i].out) return i; }
+  return from;
+}
+const cur=()=>game.players[game.turn];
+function startTurnTimer(){ game.turnEndsAt=Date.now()+20000; }
+function hostDraw(fromId){
+  if(game.over||cur().id!==fromId||game.phase!=="draw"||cur().left) return;
+  if(!game.deck.length){ hostResolveKang(fromId,true); return; }
+  const drawn=game.deck.pop();
+  cur().hand.push(drawn); game.phase="discard"; startTurnTimer(); SFX.deal();
+  game.fx={kind:"draw", actor:cur().name, seq:Date.now()};
+  pushState();
+}
+function hostDiscard(fromId,ids,isLai){
+  if(game.over||cur().id!==fromId||cur().left) return;
+  if(game.phase!=="discard" && !(isLai&&game.phase==="draw")) return;
+  const me=cur(); const sel=me.hand.filter(c=>ids.includes(cardId(c)));
+  if(!sel.length) return; const rank=sel[0].rank;
+  if(!sel.every(c=>c.rank===rank)) return;
+  if(isLai && rank!==game.lastDiscardRank) return;
+  me.hand=me.hand.filter(c=>!ids.includes(cardId(c)));
+  game.discard.push(...sel); game.lastDiscardRank=rank; SFX.deal();
+  game.fx={kind:isLai?"lai":"discard", actor:me.name, cards:sel.map(c=>c.rank+c.suit), seq:Date.now()};
+  if(me.hand.length===0){ payWinner(me.id, null); hostEnd(me.name+" ทิ้งไพ่หมดมือ — ชนะ!", me.id); return; }
+  game.turn=nextAlive(game.turn); game.phase="draw"; startTurnTimer(); pushState();
+}
+function hostAutoPlay(){
+  if(!game||game.over) return;
+  const me=cur(); if(me.left) { game.turn=nextAlive(game.turn); game.phase="draw"; startTurnTimer(); pushState(); return; }
+  if(game.phase==="draw"){
+    if(game.lastDiscardRank && me.hand.some(c=>c.rank===game.lastDiscardRank)){
+      const ids=me.hand.filter(c=>c.rank===game.lastDiscardRank).map(cardId);
+      hostDiscard(me.id, ids, true); toast("หมดเวลา — ไหลอัตโนมัติ"); return;
+    }
+    hostDraw(me.id);
+    setTimeout(()=>{ if(game && !game.over && cur().id===me.id && game.phase==="discard") hostAutoDiscard(me.id); }, 250);
+    return;
+  }
+  hostAutoDiscard(me.id);
+}
+function hostAutoDiscard(fromId){
+  const me=game.players.find(p=>p.id===fromId); if(!me||game.over) return;
+  if(!me.hand.length) return;
+  const worst=me.hand.slice().sort((a,b)=>valueOf(b.rank)-valueOf(a.rank))[0];
+  hostDiscard(fromId, [cardId(worst)], false);
+}
+function hostKang(fromId){
+  if(game.over||cur().id!==fromId||cur().left) return;
+  game.fx={kind:"kang", actor:cur().name, seq:Date.now()};
+  notifyAll(cur().name+" ตะโกน แคง!", "kang");
+  hostResolveKang(fromId,false);
+}
+function payWinner(winnerId, extraFrom){
+  if(extraFrom){
+    const loser=game.players.find(p=>p.id===extraFrom);
+    if(loser){
+      const fee=Math.min(loser.chips, game.ante||0);
+      loser.chips-=fee; game.pot+=fee;
+    }
+  }
+  const w=game.players.find(p=>p.id===winnerId);
+  if(w){
+    const gain=Number(game.pot||0);
+    w.chips=Number(w.chips||0)+gain;
+    game.pot=0;
+    game.lastPayout={id:w.id, name:w.name, gain};
+  }
+  syncLobbyChips();
+}
+function syncLobbyChips(){
+  game.players.forEach(gp=>{
+    const lp=lobbyPlayers.find(p=>p.id===gp.id);
+    if(lp) lp.chips=gp.chips;
+    if(gp.id===net.myId) saveWallet(gp.chips);
+  });
+  Object.values(net.conns).forEach(c=>{
+    if(!c.open) return;
+    const gp=game.players.find(p=>p.id===c.peer);
+    if(gp) c.send(JSON.stringify({type:"chips", chips:gp.chips}));
+  });
+}
+function hostResolveKang(whoId,forced){
+  const active=game.players.filter(p=>!p.left);
+  const scores=active.map(p=>({id:p.id,name:p.name,sum:handSum(p.hand),cards:p.hand.map(c=>c.rank+c.suit).join(" ")||"หมดมือ"})).sort((a,b)=>a.sum-b.sum);
+  const lowest=scores[0].sum, caller=game.players.find(p=>p.id===whoId), callerSum=handSum(caller.hand);
+  let title, winnerId=scores[0].id, extra=null;
+  if(forced) title=`${scores[0].name} แต้มน้อยสุด (${lowest})`;
+  else if(callerSum===lowest){ title=`${caller.name} แคงสำเร็จ! แต้ม ${callerSum}`; winnerId=caller.id; }
+  else { title=`${caller.name} แคงพลาด — ${scores[0].name} น้อยกว่า (${lowest})`; extra=caller.id; }
+  game.scores=scores; payWinner(winnerId, extra); hostEnd(title, winnerId);
+}
+function hostEnd(title){
+  game.over=true; game.resultTitle=title;
+  if(!game.scores) game.scores=game.players.filter(p=>!p.left).map(p=>({id:p.id,name:p.name,sum:handSum(p.hand),cards:p.hand.map(c=>c.rank+c.suit).join(" ")||"หมดมือ"})).sort((a,b)=>a.sum-b.sum);
+  const mine=game.players.find(p=>p.id===net.myId); if(mine) saveWallet(mine.chips);
+  pushState();
+}
+function notifyAll(text, kind){
+  toast(text);
+  tableNotice(text);
+  hostBroadcast({type:"notice", text, kind:kind||"info"});
+}
+function scheduleDrop(pid, why){
+  if(pendingDrop[pid]) clearTimeout(pendingDrop[pid]);
+  toast("รอผู้เล่นกลับมา...");
+  pendingDrop[pid]=setTimeout(()=>{ delete pendingDrop[pid]; dropPlayer(pid, why||"timeout"); }, 12000);
+}
+function dropPlayer(pid, why){
+  const lp=lobbyPlayers.find(p=>p.id===pid);
+  const name=(lp&&lp.name)||"ผู้เล่น";
+  if(lp) lp.left=true;
+  delete net.conns[pid];
+  notifyAll(name+" หลุดจากห้อง"+(why? " ("+why+")":""), "leave");
+  if(game && !game.over){
+    const gp=game.players.find(p=>p.id===pid);
+    if(gp){ gp.left=true; }
+    game.fx={kind:"leave", actor:name, seq:Date.now()};
+    const alive=game.players.filter(p=>!p.left);
+    if(alive.length<2){
+      if(alive[0]) payWinner(alive[0].id, null);
+      hostEnd(alive[0] ? alive[0].name+" ชนะ เพราะเหลือคนเดียว" : "ห้องไม่พอผู้เล่น");
+      return;
+    }
+    if(cur().id===pid){ game.turn=nextAlive(game.turn-1); game.phase="draw"; startTurnTimer(); }
+    pushState();
+  } else syncLobby();
+}
+function handleHostMessage(fromId,msg){
+  if(!msg||!msg.type) return;
+  if(msg.type==="hello"){
+    const reconnecting=lobbyPlayers.some(p=>p.id===fromId || (msg.uid&&p.uid===msg.uid));
+    if(!reconnecting && lobbyPlayers.filter(p=>!p.left).length>=4){ const c=net.conns[fromId]; if(c) c.send(JSON.stringify({type:"error",text:"ห้องเต็ม"})); return; }
+    const chips=typeof msg.chips==="number"?msg.chips:0;
+    if(!reconnecting && chips<net.ante){ const c=net.conns[fromId]; if(c) c.send(JSON.stringify({type:"error",text:"ชิปไม่พอค่าลงมือ"})); return; }
+    if(pendingDrop[fromId]){ clearTimeout(pendingDrop[fromId]); delete pendingDrop[fromId]; }
+    const byUid=msg.uid && lobbyPlayers.find(p=>p.uid===msg.uid);
+    const exist=lobbyPlayers.find(p=>p.id===fromId) || byUid;
+    if(exist){
+      exist.left=false; exist.id=fromId; exist.name=msg.name||exist.name; exist.chips=chips; exist.uid=msg.uid||exist.uid;
+      if(game){ const gp=game.players.find(p=>p.id===fromId || p.uid===msg.uid || p.name===msg.name); if(gp){ gp.left=false; gp.id=fromId; gp.chips=chips; } }
+      notifyAll((msg.name||"ผู้เล่น")+" กลับเข้าโต๊ะ", "join");
+    } else {
+      lobbyPlayers.push({id:fromId,name:msg.name||"ผู้เล่น",isHost:false,chips,left:false,uid:msg.uid||""});
+      notifyAll((msg.name||"ผู้เล่น")+" เข้าโต๊ะ", "join");
+    }
+    syncLobby(); if(game) pushState(); return;
+  }
+  if(msg.type==="draw") hostDraw(fromId);
+  if(msg.type==="discard") hostDiscard(fromId,msg.ids||[],!!msg.lai);
+  if(msg.type==="kang") hostKang(fromId);
+  if(msg.type==="again" && lobbyPlayers[0] && fromId===lobbyPlayers[0].id) hostStartRound();
+  if(msg.type==="ping") { const c = fromId===net.myId?null:net.conns[fromId]; if(c&&c.open) c.send(JSON.stringify({type:"pong"})); }
+}
+function syncLobby(){
+  renderLobby();
+  hostBroadcast({type:"lobby", code:net.code, players:lobbyPlayers, ante:net.ante});
+}
+function attachConn(conn,asHostSide){
+  conn.on("data", raw=>{ let msg; try{msg=typeof raw==="string"?JSON.parse(raw):raw;}catch(e){return;} net.isHost?handleHostMessage(conn.peer,msg):handleClientMessage(msg); });
+  conn.on("close", ()=>{
+    if(net.isHost) scheduleDrop(conn.peer, "disconnect");
+    else retryHost(0);
+  });
+  conn.on("error", ()=>{ if(!net.isHost){ toast("การเชื่อมต่อมีปัญหา กำลังลองใหม่"); retryHost(0); } });
+  conn.on("open", ()=>{
+    if(asHostSide) net.conns[conn.peer]=conn;
+    else { conn.send(JSON.stringify({type:"hello", name:net.myName, chips:loadWallet(), uid:net.uid||""})); setNet("เชื่อมต่อแล้ว"); }
+  });
+}
+function handleClientMessage(msg){
+  if(msg.type==="lobby"){ lobbyPlayers=msg.players; net.code=msg.code; net.ante=msg.ante||net.ante; show("lobby"); renderLobby(); setNet("อยู่ในห้อง "+net.code); }
+  if(msg.type==="state") applyView(msg);
+  if(msg.type==="chips") saveWallet(msg.chips);
+  if(msg.type==="notice"){ toast(msg.text); tableNotice(msg.text); }
+  if(msg.type==="error"){ menuErr(msg.text); toast(msg.text); }
+  if(msg.type==="room-closed") destroyNet(msg.text||"ห้องถูกปิด");
+}
+function retryHost(n){
+  if(n>8){
+    uiModal({title:"เชื่อมไม่สำเร็จ", body:"ยังเข้าห้องไม่ได้หลังรีเฟรช ลองกดเข้าห้องอีกครั้ง", actions:[{label:"กลับเมนู", primary:true, value:true}]}).then(()=>show("menu"));
+    return;
+  }
+  toast("กำลังเข้าห้องอีกครั้ง... ("+(n+1)+")");
+  setTimeout(()=>connectToHost(n+1), 1200+n*500);
+}
+function connectToHost(attempt){
+  if(!net.peer || !net.code) return retryHost(attempt||0);
+  try{
+    const conn=net.peer.connect(peerIdFromCode(net.code),{reliable:true});
+    net.hostConn=conn;
+    attachConn(conn,false);
+    const t=setTimeout(()=>{ if(!conn.open) retryHost(attempt||0); }, 4000);
+    conn.on("open", ()=>clearTimeout(t));
+  }catch(e){ retryHost(attempt||0); }
+}
+function createPeer(id,onOpen){
+  const opts={debug:1};
+  const peer=id ? new Peer(id,opts) : new Peer(opts);
+  peer.on("open",pid=>onOpen(pid));
+  peer.on("disconnected", ()=>{ try{ peer.reconnect(); }catch(e){} });
+  peer.on("error",err=>{
+    if(err.type==="unavailable-id" && net.isHost && net.code){
+      menuErr("รหัสห้องยังค้างบนเซิร์ฟเวอร์ กำลังเปิดใหม่...");
+      setTimeout(()=>{
+        try{ if(net.peer) net.peer.destroy(); }catch(e){}
+        net.peer=createPeer(peerIdFromCode(net.code), pid=>{
+          net.myId=pid;
+          if(!lobbyPlayers.length) lobbyPlayers=[{id:pid,name:net.myName,isHost:true,chips:loadWallet(),left:false}];
+          show("lobby"); renderLobby(); setNet("ห้องพร้อมแล้ว");
+        });
+        net.peer.on("connection", conn=>{ net.conns[conn.peer]=conn; attachConn(conn,true); });
+      }, 1800);
+    } else if(err.type==="peer-unavailable"){
+      menuErr("ยังไม่พบห้อง กำลังลองใหม่...");
+      if(!net.isHost) retryHost(0);
+    } else menuErr("เชื่อมต่อไม่สำเร็จ: "+(err.type||err.message));
+  });
+  return peer;
+}
+
+document.getElementById("hostBtn").onclick=()=>{
+  SFX.ensure();
+  const name=document.getElementById("myName").value.trim()||"เจ้าห้อง";
+  const chips=loadWallet(); const ante=Number(document.getElementById("anteSel").value);
+  if(chips<ante){ menuErr("ชิปไม่พอค่าลงมือ"); return; }
+  net.myName=name; net.isHost=true;
+  const prev=readSession();
+  net.code=(prev&&prev.role==="host"&&prev.code)?prev.code:makeCode();
+  net.ante=ante; menuErr("");
+  saveSession({role:"host", code:net.code, name, ante});
+  net.peer=createPeer(peerIdFromCode(net.code), pid=>{
+    net.myId=pid; lobbyPlayers=[{id:pid,name,isHost:true,chips,left:false}];
+    show("lobby"); renderLobby(); setNet("ห้องพร้อมแล้ว ส่งรหัสให้เพื่อน");
+  });
+  net.peer.on("connection", conn=>{ net.conns[conn.peer]=conn; attachConn(conn,true); });
+};
+document.getElementById("showJoinBtn").onclick=()=>document.getElementById("joinBox").classList.remove("hidden");
+document.getElementById("joinBtn").onclick=()=>{
+  SFX.ensure();
+  const name=document.getElementById("myName").value.trim()||"ผู้เล่น";
+  const code=document.getElementById("joinCode").value.trim().toUpperCase();
+  if(code.length<4){ menuErr("ใส่รหัสห้อง"); return; }
+  try{ if(net.peer) net.peer.destroy(); }catch(e){}
+  net.peer=null; net.hostConn=null;
+  net.myName=name; net.isHost=false; net.code=code; menuErr("");
+  const sess=readSession();
+  net.uid=(sess&&sess.code===code&&sess.uid)?sess.uid:newUid();
+  saveSession({role:"guest", code, name, uid:net.uid});
+  setNet("กำลังเข้าห้อง...");
+  show("lobby"); renderLobby();
+  net.peer=createPeer(undefined, pid=>{
+    net.myId=pid;
+    connectToHost(0);
+  });
+};
+document.getElementById("copyBtn").onclick=async()=>{ try{await navigator.clipboard.writeText(net.code); toast("คัดลอกรหัส "+net.code);}catch(e){ toast("รหัส: "+net.code); } };
+document.getElementById("beginBtn").onclick=()=>{ if(net.isHost) hostStartRound(); };
+async function confirmLeave(){
+  const ok=await uiModal({
+    title:"ออกจากห้อง",
+    body:"ต้องการออกจากโต๊ะนี้หรือไม่ ถ้าเป็นเจ้าห้อง ห้องจะปิดสำหรับทุกคน",
+    actions:[{label:"อยู่ต่อ", value:false},{label:"ออก", primary:true, value:true}]
+  });
+  if(ok) destroyNet("ออกจากห้อง");
+}
+document.getElementById("leaveBtn").onclick=confirmLeave;
+document.getElementById("leaveGameBtn").onclick=confirmLeave;
+document.getElementById("backMenuBtn").onclick=confirmLeave;
+document.getElementById("againBtn").onclick=()=>{ document.getElementById("winOverlay").classList.add("hidden"); sendHost({type:"again"}); };
+
+function myTurn(){ return !!(view&&!view.over&&view.players[view.turn]&&view.players[view.turn].id===net.myId&&!view.players[view.turn].left); }
+function canLai(){ return !!(view&&myTurn()&&view.phase==="draw"&&view.lastDiscardRank&&(view.myHand||[]).some(c=>c.rank===view.lastDiscardRank)); }
+function validSelection(){ const sel=(view?.myHand||[]).filter(c=>selected.has(cardId(c))); return sel.length>0&&sel.every(c=>c.rank===sel[0].rank); }
+function renderCard(c,selectable,small){
+  const el=document.createElement("div");
+  el.className="card-face "+(small?"sm ":"")+"flex flex-col justify-between p-1 font-extrabold "+(c.red?"text-rose-600":"text-neutral-900");
+  if(selectable&&selected.has(cardId(c))) el.classList.add("selected");
+  el.innerHTML=`<div class="${small?"text-[9px]":"text-sm"}">${c.rank}</div><div class="${small?"text-[10px]":"text-lg"} text-right">${c.suit}</div>`;
+  if(selectable) el.onclick=()=>{ const id=cardId(c); selected.has(id)?selected.delete(id):selected.add(id); renderGame(false); };
+  return el;
+}
+function seatHTML(p,isMe){
+  const wait=p.waiting && !p.left;
+  const active=p.turn?"ring-2 ring-gold bg-black/70":"bg-black/55";
+  const label=isMe ? (p.name+" (คุณ)") : p.name;
+  const showN=Math.min(p.count,5);
+  const backs=(!isMe && !p.left)?Array.from({length:showN},()=>`<div class="card-face sm card-back border border-white/25 shrink-0"></div>`).join(""):"";
+  return `<div class="seat-box rounded-2xl ${active} ${wait?"seat-wait":""} px-3 py-2 backdrop-blur-md shadow-lg border border-white/10">
+    <div class="flex items-start justify-between gap-2">
+      <div class="min-w-0">
+        <div class="flex items-center gap-1 font-bold text-gold text-xs sm:text-sm">
+          <i class="fa-solid ${isMe?"fa-user":"fa-user-secret"} shrink-0"></i>
+          <span class="seat-name" title="${label}">${label}</span>
+        </div>
+        <div class="text-[11px] text-amber-100/85 mt-0.5"><i class="fa-solid fa-coins text-gold mr-1"></i>${fmt(p.chips)} ชิป</div>
+      </div>
+      <div class="text-[11px] text-amber-100/80 shrink-0">${p.left?"หลุด":p.count+" ใบ"}</div>
+    </div>
+    <div class="flex items-center gap-1 mt-1.5 flex-wrap">${p.left?"":isMe?"":backs}</div>
+    ${wait?'<div class="text-[11px] text-gold mt-1">กำลังคิดตา...</div>':""}
+  </div>`;
+}
+function assignSeats(players,myIndex){
+  const slots=["bl","br","tr","tl"], map={tl:null,tr:null,bl:null,br:null}, n=players.length;
+  const idx=Math.max(0,myIndex);
+  for(let i=0;i<n;i++){
+    const rel=(i-idx+n)%n;
+    map[n===2?(rel===0?"bl":"tr"):n===3?["bl","br","tr"][rel]:slots[rel]]=players[i];
+  }
+  return map;
+}
+function slotOfPlayer(v, playerIndex){
+  const seats=assignSeats(v.players, Math.max(0,v.myIndex));
+  for(const k of ["tl","tr","bl","br"]) if(seats[k]&&seats[k].id===v.players[playerIndex].id) return k;
+  return "bl";
+}
+function playDealAnimation(v){
+  dealing=true;
+  document.getElementById("status").textContent="กำลังแจกไพ่...";
+  document.getElementById("myHand").innerHTML="";
+  ["drawBtn","discardBtn","laiBtn","kangBtn"].forEach(id=>document.getElementById(id).disabled=true);
+  const seats=assignSeats(v.players, Math.max(0,v.myIndex));
+  ["tl","tr","bl","br"].forEach(k=>{ const el=document.getElementById("seat-"+k); el.innerHTML=seats[k]?seatHTML(seats[k],seats[k].id===net.myId):""; });
+  const layer=document.getElementById("dealLayer"); layer.innerHTML="";
+  const box=document.getElementById("tableBox").getBoundingClientRect();
+  const targets={ tl:{x:box.width*.18,y:box.height*.16}, tr:{x:box.width*.82,y:box.height*.16}, bl:{x:box.width*.2,y:box.height*.7}, br:{x:box.width*.8,y:box.height*.7} };
+  const n=v.players.length; let delay=0;
+  for(let r=0;r<5;r++) for(let i=0;i<n;i++){
+    const t=targets[slotOfPlayer(v,i)];
+    const card=document.createElement("div"); card.className="fly-card";
+    card.style.setProperty("--dx",(t.x-box.width/2)+"px"); card.style.setProperty("--dy",(t.y-box.height*.46)+"px");
+    card.style.setProperty("--rot",(Math.random()*28-14)+"deg");
+    card.style.animation=`deal-fly 500ms cubic-bezier(.16,.84,.22,1) ${delay}ms both`;
+    layer.appendChild(card); setTimeout(()=>SFX.deal(), delay); delay+=100;
+  }
+  return new Promise(res=>setTimeout(()=>{ layer.innerHTML=""; dealing=false; res(); }, delay+520));
+}
+function clearTurnClock(){ if(turnClock){ clearInterval(turnClock); turnClock=null; } }
+function syncTurnClock(v){
+  clearTurnClock();
+  const el=document.getElementById("turnTimer");
+  if(!v||v.over||!v.turnEndsAt){ el.textContent=""; return; }
+  const tick=()=>{
+    const s=Math.max(0, Math.ceil((v.turnEndsAt-Date.now())/1000));
+    el.textContent = s?("เหลือ "+s+" วินาที"):"หมดเวลา";
+    if(s<=0){
+      clearTurnClock();
+      if(net.isHost) hostAutoPlay();
+    }
+  };
+  tick(); turnClock=setInterval(tick, 250);
+}
+function playActionFx(v){
+  if(!v||!v.fx||v.fx.seq===lastFxSeq) return;
+  lastFxSeq=v.fx.seq;
+  const kind=v.fx.kind;
+  if(kind==="draw"){
+    tableNotice((v.fx.actor||"ผู้เล่น")+" จั่วไพ่");
+    const hand=document.getElementById("myHand");
+    const last=hand && hand.lastElementChild;
+    if(last && myTurn()) last.classList.add("card-draw");
+  } else if(kind==="discard" || kind==="lai"){
+    tableNotice((v.fx.actor||"ผู้เล่น")+(kind==="lai"?" ไหล ":" ทิ้ง ")+(v.fx.cards||[]).join(" "));
+    const pile=document.getElementById("discardPile");
+    if(pile && pile.lastElementChild) pile.lastElementChild.classList.add("card-draw");
+  } else if(kind==="kang"){
+    tableNotice((v.fx.actor||"ผู้เล่น")+" แคง!");
+  } else if(kind==="leave"){
+    tableNotice((v.fx.actor||"ผู้เล่น")+" หลุดจากโต๊ะ");
+  }
+}
+
+function renderGame(afterDeal){
+  if(!view||dealing) return;
+  document.getElementById("hudRoom").textContent=net.code||"";
+  document.getElementById("hudPot").textContent=fmt(view.pot||0);
+  document.getElementById("deckCount").textContent=view.deckCount;
+  const pile=document.getElementById("discardPile"); pile.innerHTML="";
+  (view.discard||[]).forEach(c=>pile.appendChild(renderCard(c,false,false)));
+  const seats=assignSeats(view.players, Math.max(0,view.myIndex));
+  ["tl","tr","bl","br"].forEach(k=>{
+    const el=document.getElementById("seat-"+k); const p=seats[k];
+    el.innerHTML=p?seatHTML(p,p.id===net.myId):"";
+  });
+  const waiter=view.players[view.turn];
+  const waitFx=document.getElementById("waitFx");
+  if(waiter && view.phase==="draw" && !view.over && waiter.id!==net.myId && !waiter.left){
+    waitFx.classList.remove("hidden"); waitFx.classList.add("flex");
+    document.getElementById("waitText").textContent="รอ "+waiter.name+" จั่วไพ่";
+  } else { waitFx.classList.add("hidden"); waitFx.classList.remove("flex"); }
+  const handEl=document.getElementById("myHand"); handEl.innerHTML="";
+  handEl.classList.toggle("hand-deal", !!afterDeal);
+  const mine=(view.myHand||[]).slice().sort((a,b)=>valueOf(a.rank)-valueOf(b.rank)||a.suit.localeCompare(b.suit));
+  mine.forEach((c,i)=>{ const el=renderCard(c,myTurn(),false); if(afterDeal) el.style.animationDelay=(i*80)+"ms"; handEl.appendChild(el); });
+  const turnName=view.players[view.turn]?.name||"";
+  document.getElementById("status").textContent=myTurn()?(view.phase==="draw"?"ตาคุณ — จั่ว / ไหล / แคง":"ตาคุณ — เลือกไพ่แล้วทิ้ง"):"รอ "+turnName;
+  document.getElementById("hint").textContent=myTurn()?"แตะไพ่เลขเดียวกันเพื่อทิ้งพร้อมกัน":"ยังไม่ถึงตาคุณ";
+  document.getElementById("drawBtn").disabled=!myTurn()||view.phase!=="draw"||view.deckCount===0;
+  document.getElementById("laiBtn").disabled=!canLai();
+  document.getElementById("discardBtn").disabled=!myTurn()||!validSelection()||(view.phase!=="discard"&&!canLai());
+  document.getElementById("kangBtn").disabled=!myTurn();
+}
+function spawnSparks(){
+  const box=document.getElementById("winSparks"); box.innerHTML="";
+  for(let i=0;i<36;i++){
+    const s=document.createElement("div"); s.className="spark"; s.style.left="50%"; s.style.top="42%";
+    const a=Math.random()*Math.PI*2, d=80+Math.random()*220;
+    s.style.setProperty("--sx",(Math.cos(a)*d)+"px"); s.style.setProperty("--sy",(Math.sin(a)*d)+"px");
+    s.style.background=["#f3d78a","#fff","#f59e0b","#86efac"][i%4]; box.appendChild(s);
+  }
+}
+function renderResult(v){
+  show("game");
+  document.getElementById("winOverlay").classList.remove("hidden");
+  document.getElementById("winName").textContent=(v.scores&&v.scores[0])?v.scores[0].name:"ผู้ชนะ";
+  const pay=v.lastPayout;
+  document.getElementById("winSub").textContent=(v.resultTitle||"")+(pay?`\n${pay.name} ได้รับ +${fmt(pay.gain)} ชิป`:"");
+  const ul=document.getElementById("scoreList"); ul.innerHTML="";
+  (v.scores||[]).forEach((s,i)=>{
+    const li=document.createElement("li"); li.className="flex justify-between bg-black/35 rounded-xl px-3 py-2";
+    li.innerHTML=`<span>${i===0?"🏆 ":""}${s.name}</span><span>${s.sum} แต้ม · ${s.cards}</span>`;
+    ul.appendChild(li);
+  });
+  document.getElementById("againBtn").classList.toggle("hidden", !net.isHost);
+  spawnSparks(); SFX.win(); refreshWalletHud();
+}
+
+document.getElementById("drawBtn").onclick=()=>sendHost({type:"draw"});
+document.getElementById("discardBtn").onclick=()=>{
+  const ids=(view.myHand||[]).filter(c=>selected.has(cardId(c))).map(cardId);
+  const lai=view.phase==="draw"; selected.clear(); sendHost({type:"discard",ids,lai});
+};
+document.getElementById("laiBtn").onclick=()=>{
+  selected.clear(); (view.myHand||[]).filter(c=>c.rank===view.lastDiscardRank).forEach(c=>selected.add(cardId(c))); renderGame(false);
+};
+document.getElementById("kangBtn").onclick=async()=>{
+  const ok=await uiModal({
+    title:"ยืนยันแคง",
+    body:"ถ้าแต้มคุณน้อยสุด คุณได้กองกลาง\nถ้ามีคนน้อยกว่า คุณเสียค่าลงมือเพิ่มเข้ากอง",
+    actions:[{label:"ยกเลิก", value:false},{label:"แคง!", primary:true, value:true}]
+  });
+  if(ok) sendHost({type:"kang"});
+};
+document.getElementById("installBtn").onclick=installApp;
+document.getElementById("installBtn2").onclick=installApp;
+document.getElementById("resetWallet").onclick=async()=>{
+  const ok=await uiModal({
+    title:"รีเซ็ตชิป",
+    body:"ตั้งกระเป๋ากลับเป็น 1,000 ชิป?",
+    actions:[{label:"ยกเลิก", value:false},{label:"รีเซ็ต", primary:true, value:true}]
+  });
+  if(ok){ saveWallet(1000); toast("รีเซ็ตชิปแล้ว"); }
+};
+const remembered=readSession();
+document.getElementById("myName").value=(remembered&&remembered.name)||("ผู้เล่น"+Math.floor(10+Math.random()*89));
+if(remembered&&remembered.code){
+  document.getElementById("joinCode").value=remembered.code;
+  document.getElementById("joinBox").classList.remove("hidden");
+  if(remembered.ante) document.getElementById("anteSel").value=String(remembered.ante);
+  toast(remembered.role==="host"
+    ? "ห้องเดิม "+remembered.code+" — กดสร้างห้องเพื่อเปิดโต๊ะเดิมอีกครั้ง"
+    : "ห้องเดิม "+remembered.code+" — กดเข้าห้องอีกครั้ง");
+}
+refreshWalletHud();
+
+if("serviceWorker" in navigator){
+  const sw=`self.addEventListener('install',e=>self.skipWaiting());self.addEventListener('fetch',()=>{});`;
+  const blob=new Blob([sw],{type:"text/javascript"});
+  navigator.serviceWorker.register(URL.createObjectURL(blob)).catch(()=>{});
+}
+</script>
+</body>
+</html>

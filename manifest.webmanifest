@@ -1,0 +1,9 @@
+{
+  "name": "ไพ่แคง โต๊ะวงไพ่",
+  "short_name": "ไพ่แคง",
+  "start_url": "./paikang.html",
+  "display": "standalone",
+  "background_color": "#06351d",
+  "theme_color": "#0b5a32",
+  "lang": "th"
+}
